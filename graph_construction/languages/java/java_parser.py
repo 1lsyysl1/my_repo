@@ -122,9 +122,55 @@ class JavaParser(BaseParser):
         return controllers
 
     def _get_controller_path(self, node):
-        # 解析Controller的路径信息
-        # 这里可以根据具体项目结构实现路径解析逻辑
-        return "/api/" + node.text.decode().lower()
+        # 获取类级别的RequestMapping路径
+        class_path = ""
+        class_query = """
+            (class_declaration
+                (modifiers
+                    (annotation
+                        name: (identifier) @annotation
+                        arguments: (annotation_argument_list)? @args
+                        (#match? @annotation "RestController|Controller|RequestMapping")
+                    )
+                )
+            )
+        """
+        query = tree_sitter_languages.get_language(self.language).query(class_query)
+        captures = query.captures(node)
+        
+        for capture_node, _ in captures:
+            if capture_node.text.decode() == "RequestMapping":
+                # 解析RequestMapping的value参数
+                args = capture_node.next_sibling.text.decode()
+                if "value=" in args:
+                    class_path = args.split("value=")[1].split(",")[0].strip('"\'')
+            elif capture_node.text.decode() in ["RestController", "Controller"]:
+                class_path = ""
+
+        # 获取方法级别的Mapping路径
+        method_path = ""
+        method_query = """
+            (method_declaration
+                (modifiers
+                    (annotation
+                        name: (identifier) @annotation
+                        arguments: (annotation_argument_list)? @args
+                        (#match? @annotation "GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping|RequestMapping")
+                    )
+                )
+            )
+        """
+        query = tree_sitter_languages.get_language(self.language).query(method_query)
+        captures = query.captures(node)
+        
+        for capture_node, _ in captures:
+            args = capture_node.next_sibling.text.decode()
+            if "value=" in args:
+                method_path = args.split("value=")[1].split(",")[0].strip('"\'')
+
+        # 拼接完整路径
+        full_path = class_path + method_path
+        return full_path.lower()
 
     def parse_file(self, file_path: str, root_path: str, global_graph_info: GlobalGraphInfo, level: int):
         parser = tree_sitter_languages.get_parser(self.language)
